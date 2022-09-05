@@ -59,4 +59,4 @@ fig.update_layout(legend_orientation="h",
                   legend=dict(x=.5, xanchor="center"),
                   title="UTC - UTC(k) time offset",                  
                   yaxis_title="Offset, ns")
-fig.show(renderer="colab")
+fig.show()
