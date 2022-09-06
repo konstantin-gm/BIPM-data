@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 import os
 
-dir_path = 'weights/'
+
 
 def blocks(files, size=65536):
     while True:
@@ -19,15 +19,20 @@ def blocks(files, size=65536):
         if not b: break
         yield b
  
-def copyfromftp():
+def copyfromftp(key, dir_path):
     ftp = FTP()
     HOST = 'ftp2.bipm.org'
     PORT = 21
     ftp.connect(HOST, PORT)
     ftp.login()
 
-    ftp.cwd('/pub/tai/other-products/weights/')
-    #ftp.retrlines('LIST')
+    if key == 'w':
+        ftp.cwd('/pub/tai/other-products/weights/')        
+    elif key == 'd':
+        ftp.cwd('/pub/tai/other-products/clkdrifts/')        
+    else:
+        return []
+    
     files = []
     try:
         files = ftp.nlst()
@@ -40,7 +45,7 @@ def copyfromftp():
         print(f)
         
     for fname in files:        
-        if 'w' in fname:
+        if key in fname:
             with open(dir_path+fname, 'wb') as f:
                 ftp.retrbinary('RETR '+fname, f.write)
                 f.close()
@@ -61,7 +66,7 @@ def fproc(fname):
         with open(fname, "r", encoding="utf-8", errors='ignore') as f:
             for line in f:
                 if flag == 0:
-                    if "(***** DENOTES THAT THE CLOCK WAS NOT USED)" in line:
+                    if "DENOTES THAT" in line:
                         flag = 1
                     ind_list.append(i)
                 if ("RELATIVE WEIGHTS" in line or "LAB." in line 
@@ -69,7 +74,8 @@ def fproc(fname):
                     ind_list.append(i)
                 if "LAB." in line:
                     mjdline = line
-                if "Total weight" in line or "The clocks are designated" in line:
+                if ("Total weight" in line or "The clocks are designated" in line 
+                    or "The clocks codes are defined" in line):
                     end_ind = i
                 i += 1
         mjds = mjdline.split()
@@ -78,15 +84,89 @@ def fproc(fname):
             ind_list.append(i)    
     
         df = pd.read_csv(fname, sep=' ', index_col=False, skip_blank_lines=True, skipinitialspace=True, skiprows=ind_list, 
-                     na_values='*****', names=['lab', 'type', 'code', mjds[2], mjds[3], mjds[4], mjds[5], mjds[6], mjds[7], 'x']).fillna(0)
+                     na_values=['*****', '*********'], names=['lab', 'type', 'code', mjds[2], mjds[3], mjds[4], mjds[5], mjds[6], mjds[7], 'x']).fillna(0)
         df = df.drop('x', axis=1)
+        df = df[df.lab != 0]
         df['code'] = df['type'].astype(int).astype(str) + df['code'].astype(int).astype(str)
         df['code'] = df['code'].astype(int)
     except Exception as e:
         print(e)
     return df
 
-files = copyfromftp()
+def compareMasers(df):
+    header = list(df)
+    df['model'] = df['code'].apply(lambda x: str(x)[2:4] if str(x)[0:2]=="41" else 0)
+    df['model'] = df['model'].astype(int)
+    mjds = header[-12*2:-1]
+    mhm2010 = []
+    mhm2020 = []
+    vch1003m = []
+    vch1008 = []
+    codes_mhm2010 = []
+    codes_mhm2020 = []
+    codes_vch1003m = []
+    codes_vch1008 = []
+    num_mhm2010 = []
+    num_mhm2020 = []
+    num_vch1003m = []
+    num_vch1008 = []
+    for mjd in mjds:    
+        tmp = df[(df['model'] == 20) & (df[mjd] != 0)]
+        codes_mhm2010.extend(list(tmp['code']))    
+        #mhm2010.append(np.mean(tmp[mjd]))
+        mhm2010.append(np.std(tmp[mjd]))
+        #mhm2010.append(np.mean(np.abs(tmp[mjd])))
+        num_mhm2010.append(len(tmp[mjd]))
+    
+        tmp = df[(df['model'] == 21) & (df[mjd] != 0)]
+        codes_mhm2020.extend(list(tmp['code']))    
+        #mhm2020.append(np.mean(tmp[mjd]))
+        mhm2020.append(np.std(tmp[mjd]))
+        #mhm2020.append(np.mean(np.abs(tmp[mjd])))
+        num_mhm2020.append(len(tmp[mjd]))
+        
+    
+        tmp = df[(df['model'] == 53) & (df[mjd] != 0) & (np.abs(df[mjd]) < 100)]    
+        codes_vch1003m.extend(list(tmp['code']))    
+        #vch1003m.append(np.mean(tmp[mjd]))    
+        vch1003m.append(np.std(tmp[mjd]))
+        #vch1003m.append(np.mean(np.abs(tmp[mjd])))
+        num_vch1003m.append(len(tmp[mjd]))
+    
+        tmp = df[(df['model'] == 52) & (df[mjd] != 0)]
+        codes_vch1008.extend(list(tmp['code']))    
+        #vch1008.append(np.mean(tmp[mjd]))
+        vch1008.append(np.std(tmp[mjd]))
+        #vch1008.append(np.mean(np.abs(tmp[mjd])))
+        num_vch1008.append(len(tmp[mjd]))
+
+    print('Codes of MHM2010:', set(codes_mhm2010))
+    print('Codes of MHM2020:', set(codes_mhm2020))
+    print('Codes of VCH1003M:', set(codes_vch1003m))
+    print('Codes of VCH1008:', set(codes_vch1008))
+    print(vch1003m)
+    plt.figure(1)
+    #plt.title('Aveage clock weights in TAI, %')
+    plt.title('Mean absolute value of clock drifts, ns/day/30days')    
+    plt.plot(mjds, mhm2010, mjds, mhm2020, mjds, vch1003m, mjds, vch1008)
+    plt.xticks(rotation=45)
+    plt.legend(['MHM2010', 'MHM2020', 'VCH1003M', 'VCH1008 - passive H-maser'])
+    plt.figure(2)
+    plt.title('Number of clocks participating in TAI')
+    plt.plot(mjds, num_mhm2010, mjds, num_mhm2020, mjds, num_vch1003m, mjds, num_vch1008)
+    plt.legend(['MHM2010', 'MHM2020', 'VCH1003M', 'VCH1008 - passive H-maser'])
+    plt.xticks(rotation=45)
+    
+
+dir_path = 'drifts/'
+key = 'd'
+#dir_path = 'weights/'
+#key = 'w'
+if not os.path.exists(dir_path):
+    os.makedirs(dir_path)
+    
+#files = copyfromftp('d', dir_path)
+
 
 files = []
 for path in os.listdir(dir_path):
@@ -96,10 +176,10 @@ for path in os.listdir(dir_path):
 yy = 0
 ffiles = []
 while yy < 23:    
-    fname = 'w' + str(yy).zfill(2) + '.01'
+    fname = key + str(yy).zfill(2) + '.01'
     if fname in files:
         ffiles.append(fname) 
-    fname = 'w' + str(yy).zfill(2) + '.07'
+    fname = key + str(yy).zfill(2) + '.07'
     if fname in files:
         ffiles.append(fname)         
     yy += 1
@@ -107,60 +187,33 @@ while yy < 23:
 #df = pd.DataFrame({'lab':[],'type':[], 'code':[], 'lcode':[]})
 df = pd.DataFrame({'lab':[],'type':[], 'code':[]})
 for fname in ffiles:
-    if 'w' in fname:
+    if key in fname:
         df1 = fproc(dir_path+fname)
         df = df.merge(df1, how='outer', on=['code', 'lab', 'type']).fillna(0)
 
-header = list(df)
-df['model'] = df['code'].apply(lambda x: str(x)[2:4] if str(x)[0:2]=="41" else 0)
-df['model'] = df['model'].astype(int)
-mjds = header[-12*2:-1]
-mhm2010 = []
-mhm2020 = []
-vch1003m = []
-vch1008 = []
-codes_mhm2010 = []
-codes_mhm2020 = []
-codes_vch1003m = []
-codes_vch1008 = []
-num_mhm2010 = []
-num_mhm2020 = []
-num_vch1003m = []
-num_vch1008 = []
-for mjd in mjds:
-    
-    tmp = df[(df['model'] == 20) & (df[mjd] > 0)]
-    codes_mhm2010.extend(list(tmp['code']))    
-    mhm2010.append(np.mean(tmp[mjd]))
-    num_mhm2010.append(len(tmp[mjd]))
-    
-    tmp = df[(df['model'] == 21) & (df[mjd] > 0)]
-    codes_mhm2020.extend(list(tmp['code']))    
-    mhm2020.append(np.mean(tmp[mjd]))
-    num_mhm2020.append(len(tmp[mjd]))
-    
-    tmp = df[(df['model'] == 53) & (df[mjd] > 0)]    
-    codes_vch1003m.extend(list(tmp['code']))    
-    vch1003m.append(np.mean(tmp[mjd]))    
-    num_vch1003m.append(len(tmp[mjd]))
-    
-    tmp = df[(df['model'] == 52) & (df[mjd] > 0)]
-    codes_vch1008.extend(list(tmp['code']))    
-    vch1008.append(np.mean(tmp[mjd]))
-    num_vch1008.append(len(tmp[mjd]))
+compareMasers(df)
+# header = list(df)
+# mjds = header[-12*22:-1]
 
-print('Codes of MHM2010:', set(codes_mhm2010))
-print('Codes of MHM2020:', set(codes_mhm2020))
-print('Codes of VCH1003M:', set(codes_vch1003m))
-print('Codes of VCH1008:', set(codes_vch1008))
+# mean_cs = []
+# num_cs = []
+# mean_h = []
+# num_h = []
+# for mjd in mjds:
+#     tmp = df[((df['type'] < 40) | ((df['type'] > 41) & (df['type'] <= 53))) & (df[mjd] > 0)]        
+#     mean_cs.append(np.mean(tmp[mjd]))
+#     num_cs.append(len(tmp[mjd]))
+    
+#     tmp = df[((df['type'] == 40) | (df['type'] == 41)) & (df[mjd] > 0)]        
+#     mean_h.append(np.mean(tmp[mjd]))
+#     num_h.append(len(tmp[mjd]))
 
-plt.figure(1)
-plt.title('Aveage clock weights in TAI, %')
-plt.plot(mjds, mhm2010, mjds, mhm2020, mjds, vch1003m, mjds, vch1008)
-plt.xticks(rotation=45)
-plt.legend(['MHM2010', 'MHM2020', 'VCH1003M', 'VCH1008 - passive H-maser'])
-plt.figure(2)
-plt.title('Number of clocks participating in TAI')
-plt.plot(mjds, num_mhm2010, mjds, num_mhm2020, mjds, num_vch1003m, mjds, num_vch1008)
-plt.legend(['MHM2010', 'MHM2020', 'VCH1003M', 'VCH1008 - passive H-maser'])
-plt.xticks(rotation=45)
+# from matplotlib.ticker import MaxNLocator
+# fig, axes = plt.subplots(1,1)
+# axes.xaxis.set_major_locator(MaxNLocator(10)) 
+# plt.plot(mjds, mean_cs, mjds, mean_h)
+# plt.locator_params(nbins=10)
+# fig, axes = plt.subplots(1,1)
+# axes.xaxis.set_major_locator(MaxNLocator(10)) 
+# plt.plot(mjds, num_cs, mjds, num_h)
+# plt.locator_params(nbins=10)
