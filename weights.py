@@ -170,32 +170,51 @@ for fname in ffiles:
         df = df.merge(df1, how='outer', on=['code', 'lab', 'type']).fillna(0)
 
 listOfModels = [20, 21, 53, 52]
-namesOfModels = ['MHM2010', 'MHM2020', 'VCH1003M', 'VCH1008 - passive H-maser']
-prod_for_models, codes_for_models, num_for_models, mjds = compareMasers(df, listOfModels, namesOfModels)
-#header = list(df)
+#namesOfModels = ['MHM2010', 'MHM2020', 'VCH1003M', 'VCH1008 - passive H-maser']
+#prod_for_models, codes_for_models, num_for_models, mjds = compareMasers(df, listOfModels, namesOfModels)
 
-# mjds = header[-12*22:-1]
+header = list(df)
+mjds = header[-12*22:-1]
 
-# mean_cs = []
-# num_cs = []
-# mean_h = []
-# num_h = []
-# for mjd in mjds:
-#     tmp = df[((df['type'] < 40) | ((df['type'] > 41) & (df['type'] <= 53))) & (df[mjd] > 0)]        
-#     mean_cs.append(np.mean(tmp[mjd]))
-#     num_cs.append(len(tmp[mjd]))
+impact_cs = []
+num_cs = []
+impact_h = []
+num_h = []
+for mjd in mjds:    
     
-#     tmp = df[((df['type'] == 40) | (df['type'] == 41)) & (df[mjd] > 0)]        
-#     mean_h.append(np.mean(tmp[mjd]))
-#     num_h.append(len(tmp[mjd]))
+    tmp = df[((df['type'] < 40) | ((df['type'] > 41) & (df['type'] <= 53))) & (df[mjd] > 0)]        
+    impact_cs.append(np.sum(tmp[mjd]))
+    num_cs.append(len(tmp[mjd]))
+    
+    tmp = df[((df['type'] == 40) | (df['type'] == 41)) & (df[mjd] > 0)]        
+    impact_h.append(np.sum(tmp[mjd]))
+    num_h.append(len(tmp[mjd]))
 
 # from matplotlib.ticker import MaxNLocator
 # fig, axes = plt.subplots(1,1)
 # axes.xaxis.set_major_locator(MaxNLocator(10)) 
-# plt.plot(mjds, mean_cs, mjds, mean_h)
+# plt.plot(mjds, impact_cs, mjds, impact_h)
+# plt.title("Вклад в международное атомное время")
+# plt.xlabel("Дата, MJD")
+# plt.ylabel("%")
+# plt.legend(["Цезиевые стандарты", "Водородные стандарты"])
 # plt.locator_params(nbins=10)
 # fig, axes = plt.subplots(1,1)
-# axes.xaxis.set_major_locator(MaxNLocator(10)) 
+# axes.xaxis.set_major_locator(MaxNLocator(10))
 # plt.plot(mjds, num_cs, mjds, num_h)
 # plt.locator_params(nbins=10)
 
+from astropy.time import Time
+listdt = Time(mjds, format='mjd', scale='utc').datetime
+dstrlist = []
+for t in listdt:
+    dstrlist.append(t.strftime('%Y-%m-%d'))
+
+import plotly.graph_objects as go
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=dstrlist, y=impact_cs, name="Цезиевые стандарты", mode='lines'))
+fig.update_layout(legend_orientation="h",
+                  legend=dict(x=.5, xanchor="center"),
+                  title="Вклад в международное атомное время",                  
+                  yaxis_title="%")
+fig.show()
